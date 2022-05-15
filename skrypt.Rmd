@@ -1,0 +1,67 @@
+---
+title: "daa"
+author: "Maria"
+date: "15 05 2022"
+output: html_document
+---
+Firstly, training and testing data was loaded. Columns with NA values were discarded for both datasets, leaving 58 explanatory variables for classe factor. Secondly, training dataset was divided with p=0.7 to training and validation dataset. 
+Secondly, random forest with accuracy metric as method evaluation was run, as it is well known method for data classification problems, with great performance and predictive quality. 
+What is more, crossvalidation was performed with 5 folds. For each tree in random forest 8 best variables were chosen to be selected (tuning parameter). Nevertheless, parallel method was executed for improvement of calculation speed. Furthermore, number of trees was defined to be tested between 100, 150, 200, 500. 
+
+```{r setup, include=FALSE, eval = TRUE, cache = FALSE}
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(parallel)
+library(doParallel)
+
+training <- read.csv("pml-training.csv", row.names = 1, na.strings = c(NA, ""))
+testing <- read.csv("pml-testing.csv", row.names = 1, na.strings = "")
+
+set.seed(125) 
+nas <- data.frame(nas = colSums(is.na(training))) %>%
+    rownames_to_column(., 'colnames') %>%
+    filter(nas > 10000)
+to_select <- setdiff(colnames(training), nas$colnames)
+to_select_test <- setdiff(colnames(testing), nas$colnames)
+training <- training %>%
+    dplyr::select(to_select)
+testing <- testing %>%
+    select(to_select_test)
+partition <- createDataPartition(training$classe, p= 0.7, list = FALSE)
+tri <- training[partition, ]
+var <- training[-partition, ]
+fitControl <- trainControl(method = "cv", number = 5, allowParallel = TRUE)
+metric <- "Accuracy"
+mtry <- sqrt(ncol(training))
+tunegrid <- expand.grid(.mtry=mtry)
+
+
+cluster <- makeCluster(detectCores() - 1) # convention to leave 1 core for OS
+registerDoParallel(cluster)
+modellist <- list()
+for (ntree in c(100, 150, 200,  500)) {
+    set.seed(125) 
+    fit <- train(classe~., data = tri, method = 'rf', metric = metric, tuneGrid = tunegrid, trControl = fitControl, ntree  = ntree, importance=TRUE)
+    key <- toString(ntree)
+    modellist[[key]] <- fit
+}
+results <- resamples(modellist)
+final <- modellist[["500"]]
+test_predict <- predict(final, testing)
+val_predict <- predict(final, var)
+
+```
+
+
+
+```{r, include=TRUE, eval = TRUE}
+print(summary(results))
+print(dotplot(results))
+print(confusionMatrix(val_predict, var$classe))
+```
+
+
+The best performing number of trees: 500 wth greatest accuracy score (as well as narrowest conf level) and kappa level. 
+
+For validation dataset random tree with 8 estimators for each decision tree, 500 trees in total resulted in 0.9992 accuracy score. Therefore, for test dataset - predicted 0.99 accuracy score. 
